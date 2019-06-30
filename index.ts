@@ -74,12 +74,8 @@ const feedbackMask =
 const flipHorizontally = true;
 const fullScreen = false;
 
-const [gridHeight, gridWidth] = [480, 640];
 
 const gridSpacing = 13;
-
-const gridRows = 60;
-const gridCols = 60;
 
 const notLitOpacity = 0.3;
 
@@ -97,6 +93,7 @@ async function segmentBodyInRealTime() {
   // since images are being fed from a webcam
 
   let lastMask: tf.Tensor2D;
+  const [gridHeight, gridWidth] = [state.video.height, state.video.width];
 
   const backgroundGrid =
       createBackgroundGrid([gridHeight, gridWidth], gridSpacing);
