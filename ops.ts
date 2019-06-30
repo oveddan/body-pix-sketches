@@ -67,45 +67,98 @@ const selectRed = (image: tf.Tensor3D): tf.Tensor2D => tf.tidy(
     () =>
         image.slice([0, 0, 0], [image.shape[0], image.shape[1], 1]).squeeze());
 
-export const createBackgroundGrid =
-    ([gridHeight, gridWidth]: [number, number], gridSpacing: number,
-     [gridCols, gridRows]: [number, number]): tf.Tensor2D => {
-      const canvas = document.createElement('canvas');
-      canvas.width = gridWidth;
-      canvas.height = gridHeight;
+export const createBackgroundGrid = ([gridHeight, gridWidth]: [number, number],
+                                     gridSpacing: number): tf.Tensor2D => {
+  const canvas = document.createElement('canvas');
+  canvas.width = gridWidth;
+  canvas.height = gridHeight;
 
-      const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d');
 
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.strokeStyle = '#ffffff'
+  ctx.strokeStyle = '#ffffff'
 
-      for (let col = 0; col < gridCols; col++) {
-        const y = 0;
-        const x = col * gridSpacing;
+  const gridCols = Math.floor(gridWidth / gridSpacing);
 
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x, gridHeight);
-        ctx.stroke();
-      }
+  for (let col = 0; col < gridCols; col++) {
+    const y = 0;
+    const x = col * gridSpacing;
 
-      for (let row = 0; row < gridRows; row++) {
-        const x = 0;
-        const y = row * gridSpacing;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, gridHeight);
+    ctx.stroke();
+  }
 
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(gridWidth, y);
-        ctx.stroke();
-      }
+  const gridRows = Math.floor(gridHeight / gridSpacing);
 
-      return tf.tidy(() => {
-        return tf.browser.fromPixels(canvas, 1).squeeze().asType('float32').div(
-                   255) as tf.Tensor2D;
-      });
-    };
+  for (let row = 0; row < gridRows; row++) {
+    const x = 0;
+    const y = row * gridSpacing;
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(gridWidth, y);
+    ctx.stroke();
+  }
+
+  return tf.tidy(() => {
+    return tf.browser.fromPixels(canvas, 1).squeeze().asType('float32').div(
+               255) as tf.Tensor2D;
+  });
+};
+
+const drawCircle =
+    (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number,
+     opacity: number, fill: string) => {
+      ctx.beginPath();
+      ctx.globalAlpha = opacity;
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+
+export const createLightFilter = ([gridHeight, gridWidth]: [number, number],
+                                  gridSpacing: number): tf.Tensor2D => {
+  const canvas = document.createElement('canvas');
+  canvas.width = gridWidth;
+  canvas.height = gridHeight;
+
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+
+  const gridCols = Math.floor(gridWidth / gridSpacing);
+  const gridRows = Math.floor(gridHeight / gridSpacing);
+
+  for (let col = 0; col < gridCols; col++) {
+    for (let row = 0; row < gridRows; row++) {
+      const x = col * gridSpacing;
+      const y = row * gridSpacing;
+      const circleColor = '#ffffff';
+
+      drawCircle(ctx, x, y, gridSpacing / 7, 1, circleColor);
+      drawCircle(ctx, x, y, gridSpacing / 6, 0.9, circleColor);
+      drawCircle(ctx, x, y, gridSpacing / 3, 0.7, circleColor);
+      drawCircle(ctx, x, y, gridSpacing / 2, 0.6, circleColor);
+    }
+  }
+
+  return tf.tidy(() => {
+    const imageTexture =
+        tf.browser.fromPixels(canvas, 1).squeeze().asType('float32').div(255) as
+        tf.Tensor2D;
+
+    return imageTexture.mul(imageTexture)
+        .mul(imageTexture)
+        .mul(imageTexture)
+        .mul(imageTexture);
+  });
+};
 
 // class GridProgram implements tf.webgl.GPGPUProgram {
 //   variableNames = ['A'];
@@ -113,7 +166,8 @@ export const createBackgroundGrid =
 //   userCode: string;
 
 //   constructor(inputShape: number[]) {
-//     // Element-wise operator generates the tensor whose shape is exactly same
+//     // Element-wise operator generates the tensor whose shape is exactly
+//     same
 //     // with the input one.
 //     this.outputShape = inputShape;
 //     this.userCode = `

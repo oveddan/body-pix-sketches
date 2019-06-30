@@ -2,7 +2,7 @@ import * as bodyPix from '@tensorflow-models/body-pix';
 import {PartSegmentation} from '@tensorflow-models/body-pix/dist/types';
 import * as tf from '@tensorflow/tfjs-core';
 
-import {createBackgroundGrid, estimatePersonSegmentation} from './ops';
+import {createBackgroundGrid, createLightFilter, estimatePersonSegmentation} from './ops';
 import {bottom, BoundingBox, drawBoundingBoxes, drawOnFace, ensureOffscreenCanvasCreated, getPartBoundingBoxes, height, left, loadImage, right, setupCamera, shuffle, swapBox, top, width} from './util';
 
 type State = {
@@ -35,7 +35,7 @@ export async function loadVideo(cameraLabel?: string) {
 // const outputHeight = 480;
 
 
-const opacity = 0.02;
+const opacity = 0.05;
 const feedbackStrength = 1 - opacity;
 
 const getAndScaleLastFrame =
@@ -76,13 +76,16 @@ const fullScreen = false;
 
 const [gridHeight, gridWidth] = [480, 640];
 
-const gridSpacing = 10;
+const gridSpacing = 13;
 
 const gridRows = 60;
 const gridCols = 60;
 
+const notLitOpacity = 0.3;
+
 const lightColor: [number, number, number] = [1, 0, .1];
-const notLitColor: [number, number, number] = [0.2, 0.2, 0.2];
+const notLitColor: [number, number, number] =
+    [notLitOpacity, notLitOpacity, notLitOpacity];
 
 /**
  * Feeds an image to BodyPix to estimate segmentation -
@@ -95,8 +98,10 @@ async function segmentBodyInRealTime() {
 
   let lastMask: tf.Tensor2D;
 
-  const backgroundGrid = createBackgroundGrid(
-      [gridHeight, gridWidth], gridSpacing, [gridCols, gridRows]);
+  const backgroundGrid =
+      createBackgroundGrid([gridHeight, gridWidth], gridSpacing);
+
+  const lightFilter = createLightFilter([gridHeight, gridWidth], gridSpacing);
 
   const lightColorTensor = tf.tensor3d(lightColor, [1, 1, 3]);
   const notLitTensor = tf.tensor3d(notLitColor, [1, 1, 3]);
@@ -137,13 +142,15 @@ async function segmentBodyInRealTime() {
                              .squeeze();
 
 
-      const maskedGrid = scaledGrid.mul(mask);
+      const maskedGrid = scaledGrid.mul(mask) as tf.Tensor2D;
 
       const notLitGrid =
           scaledGrid.expandDims(2).mul(notLitTensor) as tf.Tensor3D;
 
+      const lightGrid = maskedGrid.mul(lightFilter);
+
       const rgbGrid =
-          maskedGrid.expandDims(2).mul(lightColorTensor) as tf.Tensor3D;
+          lightGrid.expandDims(2).mul(lightColorTensor) as tf.Tensor3D;
 
       // return scaledGrid.mul(mask) as tf.Tensor2D;
       return notLitGrid.add(rgbGrid).clipByValue(0, 1) as tf.Tensor3D;
