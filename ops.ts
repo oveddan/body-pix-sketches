@@ -6,7 +6,7 @@ import * as tf from '@tensorflow/tfjs-core';
 import {expectNumbersClose} from '@tensorflow/tfjs-core/dist/test_util';
 
 
-const segmentationModelImageDimensions: [number, number] = [353, 257];
+export const segmentationModelImageDimensions: [number, number] = [353, 257];
 
 interface Padding {
   top: number;
@@ -14,6 +14,35 @@ interface Padding {
   bottom: number;
   right: number;
 }
+
+export const cropAndScaleToInputSize =
+    (tensor: tf.Tensor3D): tf.Tensor3D => {
+      const [sourceHeight, sourceWidth] = tensor.shape;
+      const [targetHeight, targetWidth] = segmentationModelImageDimensions;
+
+      const scaleV = targetHeight / sourceHeight;
+
+      const targetWidthThatMatchesAspect = Math.round(sourceWidth * scaleV);
+      const cropW = targetWidthThatMatchesAspect - targetWidth;
+      const widthStart = Math.floor(cropW / 2);
+      const cropH = targetHeight
+
+
+      console.log(
+          'target, ', targetHeight, targetWidth, widthStart, cropH, cropW);
+
+      // resize to match height.
+      return tf.tidy(() => {
+        const scaled =
+            tensor.resizeBilinear([targetHeight, targetWidthThatMatchesAspect]);
+
+        if (cropW > 0) {
+          return scaled.slice([0, widthStart, 0], [cropH, cropW, 3]);
+        } else {
+          return scaled;
+        }
+      });
+    }
 
 const scaleToOutputSize =
     (tensor: tf.Tensor3D, {top, bottom, left, right}: Padding,

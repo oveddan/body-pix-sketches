@@ -2,8 +2,8 @@ import * as bodyPix from '@tensorflow-models/body-pix';
 import {PartSegmentation} from '@tensorflow-models/body-pix/dist/types';
 import * as tf from '@tensorflow/tfjs-core';
 
-import {createBackgroundGrid, createLightFilter, estimatePersonSegmentation} from './ops';
-import {bottom, BoundingBox, drawBoundingBoxes, drawOnFace, ensureOffscreenCanvasCreated, getPartBoundingBoxes, height, left, loadImage, right, setupCamera, shuffle, swapBox, top, width} from './util';
+import {createBackgroundGrid, createLightFilter, cropAndScaleToInputSize, estimatePersonSegmentation} from './ops';
+import {bottom, BoundingBox, drawBoundingBoxes, drawOnFace, ensureOffscreenCanvasCreated, getPartBoundingBoxes, height, left, loadImage, right, scalesMismatch, setupCamera, shuffle, swapBox, top, width} from './util';
 
 type State = {
   video: HTMLVideoElement,
@@ -95,10 +95,9 @@ async function segmentBodyInRealTime() {
   let lastMask: tf.Tensor2D;
   const [gridHeight, gridWidth] = [state.video.height, state.video.width];
 
-  const backgroundGrid =
-      createBackgroundGrid([gridHeight, gridWidth], gridSpacing);
+  let backgroundGrid: tf.Tensor2D;
 
-  const lightFilter = createLightFilter([gridHeight, gridWidth], gridSpacing);
+  let lightFilter: tf.Tensor2D;
 
   const lightColorTensor = tf.tensor3d(lightColor, [1, 1, 3]);
   const notLitTensor = tf.tensor3d(notLitColor, [1, 1, 3]);
@@ -115,40 +114,71 @@ async function segmentBodyInRealTime() {
 
     const input = await tf.browser.fromPixels(state.video);
 
-    const outputWidth = fullScreen ? window.innerWidth : 640;
-    const outputHeight = fullScreen ? window.innerHeight : 480;
+    const outputWidth = fullScreen ? window.innerWidth : 1280;
+    const outputHeight = fullScreen ? window.innerHeight : 720;
 
     const mask = tf.tidy(() => {
+      // const scaledInput = cropAndScaleToInputSize(input);
       const partSegmentation = estimatePersonSegmentation(
           state.net, input, outputStride, [outputHeight, outputWidth],
           segmentationThreshold);
 
+      console.log('part shape', partSegmentation.shape);
       const flippedSegmentation =
           flipHorizontally ? partSegmentation.reverse(1) : partSegmentation;
 
       const feedback = feedbackMask(flippedSegmentation, lastMask);
+
+      console.log('feedback shape', feedback.shape);
 
       return feedback;
     });
 
     lastMask = mask;
 
+    if (!backgroundGrid ||
+        scalesMismatch(backgroundGrid.shape, [outputHeight, outputWidth])) {
+      if (backgroundGrid) backgroundGrid.dispose();
+      backgroundGrid =
+          createBackgroundGrid([outputHeight, outputWidth], gridSpacing);
+    }
+
+    if (!lightFilter ||
+        scalesMismatch(lightFilter.shape, [outputHeight, outputWidth])) {
+      if (lightFilter) lightFilter.dispose();
+      lightFilter = createLightFilter([outputHeight, outputWidth], gridSpacing);
+    }
+
     const output = tf.tidy(() => {
       const scaledGrid = (backgroundGrid.expandDims(2) as tf.Tensor3D)
                              .resizeBilinear([outputHeight, outputWidth])
                              .squeeze();
 
+      console.log('scaled shape', scaledGrid.shape);
+
 
       const maskedGrid = scaledGrid.mul(mask) as tf.Tensor2D;
+
+      console.log('mask shape', mask.shape);
 
       const notLitGrid =
           scaledGrid.expandDims(2).mul(notLitTensor) as tf.Tensor3D;
 
+
+      // const scaledFilter = (lightFilter.expandDims(2) as tf.Tensor3D)
+      //                          .resizeBilinear([outputHeight, outputWidth])
+      //                          .squeeze();
+
+      // console.log('not list grid', notLitGrid.shape, scaledFilter.shape);
+
       const lightGrid = maskedGrid.mul(lightFilter);
+
 
       const rgbGrid =
           lightGrid.expandDims(2).mul(lightColorTensor) as tf.Tensor3D;
 
+
+      console.log('not lit', rgbGrid.shape, notLitGrid.shape);
       // return scaledGrid.mul(mask) as tf.Tensor2D;
       return notLitGrid.add(rgbGrid).clipByValue(0, 1) as tf.Tensor3D;
     });

@@ -260,3 +260,8 @@ export async function setupCamera(cameraLabel?: string) {
     };
   });
 }
+
+
+export function scalesMismatch([height, width], [outputHeight, outputWidth]) {
+  return height !== outputHeight || width !== outputWidth;
+}
