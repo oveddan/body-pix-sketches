@@ -265,3 +265,21 @@ export async function setupCamera(cameraLabel?: string) {
 export function scalesMismatch([height, width], [outputHeight, outputWidth]) {
   return height !== outputHeight || width !== outputWidth;
 }
+
+export function getFullScreenSize(
+    [height, width, _], [screenHeight, screenWidth]): [number, number] {
+  const aspect = width / height;
+  const screenAspect = screenWidth / screenHeight;
+  let scale;
+
+  if (screenAspect > aspect) {
+    // target width is greater than scaled width, scale to match height
+    console.log('is wider');
+    scale = screenHeight / height;
+  } else {
+    console.log('is taller');
+    scale = screenWidth / width;
+  }
+
+  return [Math.round(height * scale), Math.round(width * scale)];
+}

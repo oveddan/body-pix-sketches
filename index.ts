@@ -2,8 +2,8 @@ import * as bodyPix from '@tensorflow-models/body-pix';
 import {PartSegmentation} from '@tensorflow-models/body-pix/dist/types';
 import * as tf from '@tensorflow/tfjs-core';
 
-import {createBackgroundGrid, createLightFilter, cropAndScaleToInputSize, estimatePersonSegmentation} from './ops';
-import {bottom, BoundingBox, drawBoundingBoxes, drawOnFace, ensureOffscreenCanvasCreated, getPartBoundingBoxes, height, left, loadImage, right, scalesMismatch, setupCamera, shuffle, swapBox, top, width} from './util';
+import {createBackgroundGrid, createLightFilter, cropAndScaleToInputSize, estimatePersonSegmentation, getPadToMatch, padToMatch} from './ops';
+import {bottom, BoundingBox, drawBoundingBoxes, drawOnFace, ensureOffscreenCanvasCreated, getFullScreenSize, getPartBoundingBoxes, height, left, loadImage, right, scalesMismatch, setupCamera, shuffle, swapBox, top, width} from './util';
 
 type State = {
   video: HTMLVideoElement,
@@ -114,22 +114,25 @@ async function segmentBodyInRealTime() {
 
     const input = await tf.browser.fromPixels(state.video);
 
-    const outputWidth = fullScreen ? window.innerWidth : 1280;
-    const outputHeight = fullScreen ? window.innerHeight : 720;
+    const [screenHeight, screenWidth] = [window.innerHeight, window.innerWidth];
+
+    const [fullScreenHeight, fullScreenWidth] =
+        getFullScreenSize(input.shape, [screenHeight, screenWidth]);
+
+    const outputWidth = fullScreen ? fullScreenWidth : input.shape[1];
+    const outputHeight = fullScreen ? fullScreenHeight : input.shape[0];
+
+    console.log('target', fullScreenHeight, fullScreenWidth);
 
     const mask = tf.tidy(() => {
-      // const scaledInput = cropAndScaleToInputSize(input);
       const partSegmentation = estimatePersonSegmentation(
           state.net, input, outputStride, [outputHeight, outputWidth],
           segmentationThreshold);
 
-      console.log('part shape', partSegmentation.shape);
       const flippedSegmentation =
           flipHorizontally ? partSegmentation.reverse(1) : partSegmentation;
 
       const feedback = feedbackMask(flippedSegmentation, lastMask);
-
-      console.log('feedback shape', feedback.shape);
 
       return feedback;
     });
@@ -154,12 +157,8 @@ async function segmentBodyInRealTime() {
                              .resizeBilinear([outputHeight, outputWidth])
                              .squeeze();
 
-      console.log('scaled shape', scaledGrid.shape);
-
 
       const maskedGrid = scaledGrid.mul(mask) as tf.Tensor2D;
-
-      console.log('mask shape', mask.shape);
 
       const notLitGrid =
           scaledGrid.expandDims(2).mul(notLitTensor) as tf.Tensor3D;
@@ -183,6 +182,8 @@ async function segmentBodyInRealTime() {
       return notLitGrid.add(rgbGrid).clipByValue(0, 1) as tf.Tensor3D;
     });
 
+    const padded = padToMatch(output, [screenHeight, screenWidth]);
+
     const ctx = canvas.getContext('2d');
 
     ctx.save();
@@ -193,10 +194,11 @@ async function segmentBodyInRealTime() {
     }
 
     console.log('drawing');
-    await tf.browser.toPixels(output, canvas);
+    await tf.browser.toPixels(padded, canvas);
     console.log('drew');
 
     output.dispose();
+    padded.dispose();
     input.dispose();
 
     ctx.restore();

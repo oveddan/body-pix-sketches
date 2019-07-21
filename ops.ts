@@ -1,7 +1,7 @@
 import {BodyPix, toMask} from '@tensorflow-models/body-pix';
 import {OutputStride} from '@tensorflow-models/body-pix/dist/mobilenet';
 import {BodyPixInput} from '@tensorflow-models/body-pix/dist/types';
-import {getInputTensorDimensions, removePaddingAndResizeBack, resizeAndPadTo, scaleAndCropToInputTensorShape} from '@tensorflow-models/body-pix/dist/util';
+import {getInputTensorDimensions, removePaddingAndResizeBack, resizeAndPadTo} from '@tensorflow-models/body-pix/dist/util';
 import * as tf from '@tensorflow/tfjs-core';
 import {expectNumbersClose} from '@tensorflow/tfjs-core/dist/test_util';
 
@@ -66,17 +66,17 @@ const scaleToOutputSize =
     };
 
 export function estimatePersonSegmentation(
-    model: BodyPix, input: BodyPixInput, outputStride: OutputStride = 16,
+    model: BodyPix, input: tf.Tensor3D, outputStride: OutputStride = 16,
     [outputHeight, outputWidth]: [number, number],
     segmentationThreshold = 0.5): tf.Tensor2D {
-  const [height, width] = getInputTensorDimensions(input);
+  const [height, width] = input.shape;
   return tf.tidy(() => {
     const {
       resizedAndPadded,
       paddedBy: [[top, bottom], [left, right]],
     } = resizeAndPadTo(input, segmentationModelImageDimensions);
 
-    const padding: Padding = {top, bottom, left, right};
+    // const padding: Padding = {top, bottom, left, right};
 
     const segmentScores =
         model.predictForSegmentation(resizedAndPadded, outputStride);
@@ -189,24 +189,22 @@ export const createLightFilter = ([gridHeight, gridWidth]: [number, number],
   });
 };
 
-// class GridProgram implements tf.webgl.GPGPUProgram {
-//   variableNames = ['A'];
-//   outputShape: number[];
-//   userCode: string;
 
-//   constructor(inputShape: number[]) {
-//     // Element-wise operator generates the tensor whose shape is exactly
-//     same
-//     // with the input one.
-//     this.outputShape = inputShape;
-//     this.userCode = `
-//       void main() {
-//         float a = getAAtOutCoords();
-//         float output = a * a;
-//         setOutput(output);
-//       }
-//     `;
-//   }
-// }
+export function getPadToMatch([height, width, _], [targetHeight, targetWidth]) {
+  const [padH, padW] = [targetHeight - height, targetWidth - width];
 
-// const program = new (GridProgram );
+  return {
+    left: Math.floor(padW / 2),
+    right: Math.floor(padW / 2),
+    top: Math.floor(padH / 2),
+    bottom: Math.floor(padH / 2),
+  };
+}
+
+
+export function padToMatch(
+    input: tf.Tensor3D, target: [number, number]): tf.Tensor3D {
+  const {left, right, top, bottom} = getPadToMatch(input.shape, target);
+
+  return tf.pad3d(input, [[top, bottom], [left, right], [0, 0]]);
+}
