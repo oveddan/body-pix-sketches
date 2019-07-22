@@ -28,8 +28,8 @@ export const cropAndScaleToInputSize =
       const cropH = targetHeight
 
 
-      console.log(
-          'target, ', targetHeight, targetWidth, widthStart, cropH, cropW);
+      // console.log(
+      //     'target, ', targetHeight, targetWidth, widthStart, cropH, cropW);
 
       // resize to match height.
       return tf.tidy(() => {
@@ -56,7 +56,7 @@ const scaleToOutputSize =
         console.log(
             'padding', height, width, cropH, cropW, top, bottom, left, right);
 
-        console.log('slicing to', top, left, cropH, cropW);
+        // console.log('slicing to', top, left, cropH, cropW);
         const withPaddingRemoved =
             tf.slice3d(tensor, [top, left, 0], [cropH, cropW, tensor.shape[2]]);
 
@@ -170,10 +170,10 @@ export const createLightFilter = ([gridHeight, gridWidth]: [number, number],
       const y = row * gridSpacing;
       const circleColor = '#ffffff';
 
-      drawCircle(ctx, x, y, gridSpacing / 7, 1, circleColor);
+      drawCircle(ctx, x, y, gridSpacing / 5, 1, circleColor);
       drawCircle(ctx, x, y, gridSpacing / 6, 0.9, circleColor);
       drawCircle(ctx, x, y, gridSpacing / 3, 0.7, circleColor);
-      drawCircle(ctx, x, y, gridSpacing / 2, 0.6, circleColor);
+      drawCircle(ctx, x, y, gridSpacing / 2, 0.7, circleColor);
     }
   }
 
@@ -207,4 +207,46 @@ export function padToMatch(
   const {left, right, top, bottom} = getPadToMatch(input.shape, target);
 
   return tf.pad3d(input, [[top, bottom], [left, right], [0, 0]]);
+}
+
+
+export function drawMaskFilter([targetHeight, targetWidth]): tf.Tensor2D {
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+
+  // fill with white
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+  ctx.fillStyle = '#000'
+  // left side
+  ctx.fillRect(0, 0, 100, 30);
+  ctx.fillRect(0, 60, 20, 100);
+  ctx.fillRect(0, 60 + 150, 10, 70);
+  ctx.fillRect(0, 60 + 150 + 90, 30, 50);
+  ctx.fillRect(0, 60 + 150 + 90 + 30, 25, 100);
+
+  // top side
+  ctx.fillRect(200, 0, 200, 15);
+
+  // bottom side
+  ctx.fillRect(60, targetHeight - 40, 170, 40);
+  ctx.fillRect(450, targetHeight - 50, 80, 60);
+
+  // right side
+  ctx.fillRect(targetWidth - 100, 0, 100, 30);
+  ctx.fillRect(targetWidth - 20, 60, 20, 100);
+  ctx.fillRect(targetWidth - 10, 60 + 150, 10, 70);
+  ctx.fillRect(targetWidth - 30, 60 + 150 + 90, 30, 50);
+  ctx.fillRect(targetWidth - 25, 60 + 150 + 90 + 30, 25, 100);
+
+
+  // random hole
+  // ctx.fillRect(500, 100, 20, 70);
+
+  return tf.browser.fromPixels(canvas).squeeze().div(255).toFloat() as
+      tf.Tensor2D;
 }
