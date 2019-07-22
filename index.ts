@@ -1,6 +1,7 @@
 import * as bodyPix from '@tensorflow-models/body-pix';
 import {PartSegmentation} from '@tensorflow-models/body-pix/dist/types';
 import * as tf from '@tensorflow/tfjs-core';
+import * as datGui from 'dat.gui';
 
 import {createBackgroundGrid, createLightFilter, cropAndScaleToInputSize, drawMaskFilter, estimatePersonSegmentation, getPadToMatch, padToMatch} from './ops';
 import {bottom, BoundingBox, drawBoundingBoxes, drawOnFace, ensureOffscreenCanvasCreated, getFullScreenSize, getPartBoundingBoxes, height, left, loadImage, right, scalesMismatch, setupCamera, shuffle, swapBox, top, width} from './util';
@@ -34,9 +35,32 @@ export async function loadVideo(cameraLabel?: string) {
 // const outputWidth = 640;
 // const outputHeight = 480;
 
+interface GuiState {
+  appearanceSpeed: number, burnStrength: number, gridSpacing: number,
+      notLitOpacity: number, lightColor: [number, number, number]
+  cutIrregularEdge: boolean, fullScreen: boolean
+}
 
-const opacity = 0.3;
-const feedbackStrength = 1 - 0.05;
+const guiState: GuiState = {
+  appearanceSpeed: 0.3,
+  burnStrength: .95,
+  gridSpacing: 19,
+  notLitOpacity: 0.12,
+  lightColor: [255, 0, 10],
+  cutIrregularEdge: false,
+  fullScreen: false
+};
+
+const createGui = () => {
+  const gui = new datGui.GUI();
+  gui.add(guiState, 'appearanceSpeed').min(.2).max(1);
+  gui.add(guiState, 'burnStrength').min(0).max(.9);
+  gui.add(guiState, 'gridSpacing').min(5).max(30).step(1);
+  gui.add(guiState, 'notLitOpacity').min(0).max(.5);
+  gui.addColor(guiState, 'lightColor');
+  gui.add(guiState, 'cutIrregularEdge');
+  gui.add(guiState, 'fullScreen');
+};
 
 const getAndScaleLastFrame =
     (lastFrame: tf.Tensor2D,
@@ -60,28 +84,19 @@ const feedbackMask =
         // const data = await partSegmentation.data();
         // console.log('data', data);
 
-        const mask = partSegmentation.mul(opacity) as tf.Tensor2D;
+        const mask =
+            partSegmentation.mul(guiState.appearanceSpeed) as tf.Tensor2D;
 
         const lastFrameToUse = getAndScaleLastFrame(lastFrame, mask.shape);
 
         const frame =
-            mask.add(lastFrameToUse.mul(feedbackStrength)) as tf.Tensor2D;
+            mask.add(lastFrameToUse.mul(guiState.burnStrength)) as tf.Tensor2D;
 
         return frame.clipByValue(0, 1);
       });
     };
 
 const flipHorizontally = true;
-const fullScreen = false;
-
-
-const gridSpacing = 13;
-
-const notLitOpacity = 0.2;
-
-const lightColor: [number, number, number] = [1, 0, .1];
-const notLitColor: [number, number, number] =
-    [notLitOpacity, notLitOpacity, notLitOpacity];
 
 /**
  * Feeds an image to BodyPix to estimate segmentation -
@@ -96,12 +111,10 @@ async function segmentBodyInRealTime() {
   const [gridHeight, gridWidth] = [state.video.height, state.video.width];
 
   let backgroundGrid: tf.Tensor2D;
+  let backgroundGridSpacing: number;
 
   let lightFilter: tf.Tensor2D;
   let maskFilter: tf.Tensor2D;
-
-  const lightColorTensor = tf.tensor3d(lightColor, [1, 1, 3]);
-  const notLitTensor = tf.tensor3d(notLitColor, [1, 1, 3]);
 
   const imageCropTensor = tf.browser.fromPixels(
       document.getElementById('imageCrop') as HTMLImageElement);
@@ -124,10 +137,9 @@ async function segmentBodyInRealTime() {
     const [fullScreenHeight, fullScreenWidth] =
         getFullScreenSize(input.shape, [screenHeight, screenWidth]);
 
-    const outputWidth = fullScreen ? fullScreenWidth : input.shape[1];
-    const outputHeight = fullScreen ? fullScreenHeight : input.shape[0];
-
-    console.log('target', fullScreenHeight, fullScreenWidth);
+    const outputWidth = guiState.fullScreen ? fullScreenWidth : input.shape[1];
+    const outputHeight =
+        guiState.fullScreen ? fullScreenHeight : input.shape[0];
 
     const mask = tf.tidy(() => {
       const partSegmentation = estimatePersonSegmentation(
@@ -144,17 +156,16 @@ async function segmentBodyInRealTime() {
 
     lastMask = mask;
 
-    if (!backgroundGrid ||
+    if (!backgroundGrid || backgroundGridSpacing !== guiState.gridSpacing ||
         scalesMismatch(backgroundGrid.shape, [outputHeight, outputWidth])) {
       if (backgroundGrid) backgroundGrid.dispose();
-      backgroundGrid =
-          createBackgroundGrid([outputHeight, outputWidth], gridSpacing);
-    }
+      backgroundGrid = createBackgroundGrid(
+          [outputHeight, outputWidth], guiState.gridSpacing);
+      backgroundGridSpacing = guiState.gridSpacing;
 
-    if (!lightFilter ||
-        scalesMismatch(lightFilter.shape, [outputHeight, outputWidth])) {
       if (lightFilter) lightFilter.dispose();
-      lightFilter = createLightFilter([outputHeight, outputWidth], gridSpacing);
+      lightFilter =
+          createLightFilter([outputHeight, outputWidth], guiState.gridSpacing);
     }
 
     if (!maskFilter ||
@@ -172,6 +183,12 @@ async function segmentBodyInRealTime() {
 
       const maskedGrid = scaledGrid.mul(mask) as tf.Tensor2D;
 
+      const notLitColor = [
+        guiState.notLitOpacity, guiState.notLitOpacity, guiState.notLitOpacity
+      ];
+
+      const notLitTensor = tf.tensor3d(notLitColor, [1, 1, 3]);
+
       const notLitGrid =
           scaledGrid.expandDims(2).mul(notLitTensor) as tf.Tensor3D;
 
@@ -184,24 +201,24 @@ async function segmentBodyInRealTime() {
 
       const lightGrid = maskedGrid.mul(lightFilter);
 
+      const lightColorTensor = tf.tensor3d(guiState.lightColor, [
+                                   1, 1, 3
+                                 ]).div(tf.scalar(255, 'float32'));
+
 
       const rgbGrid =
           lightGrid.expandDims(2).mul(lightColorTensor) as tf.Tensor3D;
-
 
       // console.log('not lit', rgbGrid.shape, notLitGrid.shape);
       // return scaledGrid.mul(mask) as tf.Tensor2D;
       return notLitGrid.add(rgbGrid).clipByValue(0, 1) as tf.Tensor3D;
     });
 
-    console.log('masking')
-    const croppedByMask = output.mul(maskFilter) as tf.Tensor3D;
-
-    console.log('masked', output.dtype, croppedByMask.dtype);
+    const croppedByMask = guiState.cutIrregularEdge ?
+        (output.mul(maskFilter) as tf.Tensor3D) :
+        output;
 
     const padded = padToMatch(croppedByMask, [screenHeight, screenWidth]);
-
-    console.log('padding', padded.dtype);
 
     const ctx = canvas.getContext('2d');
 
@@ -243,6 +260,7 @@ export async function bindPage() {
   await loadVideo();
 
   // setupFPS();
+  createGui();
 
   segmentBodyInRealTime();
 }
